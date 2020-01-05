@@ -1,6 +1,7 @@
 import torch
 import torchvision
-from torchvision import datasets
+from torch.utils.data import DataLoader, Dataset
+from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
@@ -8,28 +9,33 @@ from PIL import Image
 from poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
 import random
 
+device = 'cuda'
 
+preprocess = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
 
-# pd = PoisonedCIFAR10('.data', bomb_pattern_cifar)
-# idx = random.randint(0, len(pd)-1)
+benign_trainset = datasets.CIFAR10('.data', train=True, transform=preprocess)
+benign_train_data = DataLoader(benign_trainset, batch_size=200, shuffle=True, num_workers=16)
 
-# img, label = pd[idx]
+pdset = PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, epsilon=1, only_pd=True, train=True, transform=preprocess)
+pd_data = DataLoader(pdset, batch_size=200, shuffle=True, num_workers=16)
 
-trainset = datasets.CIFAR10('.data', train=False)
-print(trainset)
-# print(len(trainset))
-# data, label = trainset[0]
-# image = Image.open('.data/trigger/flower_nobg.png')
-# # new_img = Image.new("RGB", (image.size[0],image.size[1]), (0, 0, 0, 0))
-# img = image.resize((5, 5), Image.ANTIALIAS)
+from datetime import datetime
 
-# new_im = Image.new("RGBA", (32, 32))
-# new_im.paste(img, (32 - 5, 32 -5))
+def test_time(data):
+    start = datetime.now()
 
-# img = Image.composite(new_im, data, new_im)
+    for i, (data, labels) in enumerate(data):
+        data, labels = data.to(device), labels.to(device)
 
-# print(label)
+    print(datetime.now() - start)
 
-# la = np.array(img)
-# plt.imshow(la)
-# plt.show()
+print('poisoned')
+test_time(pd_data)
+print('benign')
+test_time(benign_train_data)
+
