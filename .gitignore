@@ -1,0 +1,5 @@
+runs/**
+.vscode/**
+.models/**
+.data/**
+__pycache__
