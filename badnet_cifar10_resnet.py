@@ -11,10 +11,11 @@ from poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
 import os
 import sys
 
-DEVICE = 'cuda'
-BATCH_SIZE = 20
+DEVICE = 'cuda:0'
+BATCH_SIZE = 100
 NUM_WORKER = 8
-EPOCHS = 350
+EPOCHS = 210
+LR_DECAY_STEPS = 90
 
 preprocess = transforms.Compose([
     transforms.Resize(256),
@@ -32,7 +33,7 @@ benign_test_data = DataLoader(benign_testset, batch_size=BATCH_SIZE, num_workers
 
 def lazy_init(model):
     optimizer = O.SGD(model.parameters(), lr=0.1, momentum=0.9)
-    schedular = O.lr_scheduler.StepLR(optimizer, step_size=150, gamma=0.1)
+    schedular = O.lr_scheduler.StepLR(optimizer, step_size=LR_DECAY_STEPS, gamma=0.1)
 
     hp = HyperParameter(optimizer=optimizer, schedular=schedular, 
         criterion=nn.CrossEntropyLoss(), device=DEVICE, batch_size=BATCH_SIZE, epochs=EPOCHS)
@@ -74,17 +75,18 @@ def train_poisoned_data(epsilon):
 
     trainer.train()
 
+    model_path = os.path.join('.models', f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    torch.save(model.state_dict(), model_path)    
+
     model.eval()
 
     result = Trainer.test(model, poison_test_data, DEVICE)
-
+    
     print(f"{epsilon}::{result / len(poisoned_testset)}")
 
-    model_path = os.path.join('.models', f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
     with open(model_path.replace('.pth', '.txt'), 'w+') as logger:
         logger.write(f"{epsilon}::{result / len(poisoned_testset)}\n")
 
-    torch.save(model.state_dict(), model_path)
 
 
 if __name__ == "__main__":
