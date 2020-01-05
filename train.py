@@ -104,7 +104,7 @@ class Trainer(object):
                 if self.schedular is not None:
                     self.schedular.step()
 
-            Logger.clog_with_tag("LOG", f"{datetime.now().strftime('%m-%d-%H:%M:%S')} -- Current Loss is: {ep_loss / (len(self.dataset) / self.batch_size)}", tag_color=Logger.color.YELLOW)
+            Logger.clog_with_tag("LOG", f"{datetime.now().strftime('%m-%d-%H:%M:%S')} -- Epoch: {ep}, Current Loss is: {ep_loss / (len(self.dataset) / self.batch_size)}", tag_color=Logger.color.YELLOW)
         
     @staticmethod
     def test(model, dataset, device='cuda'):

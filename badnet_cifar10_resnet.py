@@ -57,16 +57,18 @@ def train_benign_resnet50():
 
     print(f"{result / len(testset)}")
 
+    model_path = os.path.join('.models', f'badnets_cifar_resnet.pth')
+
+    torch.save(model.state_dict(), model_path)
+
 def train_poisoned_data(epsilon):
     poisoned_trainset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess,)
     poison_train_data = DataLoader(poisoned_trainset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
 
-    poisoned_testset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=False, epsilon=epsilon, target=5, transform=preprocess,)
+    poisoned_testset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess,)
     poison_test_data = DataLoader(poisoned_testset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
 
     model = torchvision.models.resnet50(num_classes=10).to(DEVICE)
-
-    print(lazy_init(model))
     
     trainer = Trainer(model, poison_train_data, device=DEVICE, hp=lazy_init(model))
 
@@ -95,5 +97,7 @@ if __name__ == "__main__":
         if cmd == '--eps':
             epsilon = float(value)
     if epsilon == -1:
-        epsilon = 0.002
+        epsilon = 0
     train_poisoned_data(epsilon)
+
+    # train_benign_resnet50()
