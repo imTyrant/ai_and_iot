@@ -105,7 +105,6 @@ if __name__ == "__main__":
     epsilon = -1
     for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
         cmd, value = each
-        print(each)
         if cmd == '--gpu':
             DEVICE = value
         if cmd == '--eps':
