@@ -216,13 +216,13 @@ def prune_with_fine_tuning_on_clean_data(model_path):
 
     return result
 
-writer = SummaryWriter(f"runs/badnets_test_{datetime.now().strftime('%Y_%m_%d_%H_%M')}")
+# writer = SummaryWriter(f"runs/badnets_test_{datetime.now().strftime('%Y_%m_%d_%H_%M')}")
 # result = epsilon_and_test()
 # writer.add_figure('bvb', show_acc(result), global_step=0)
 # result = prune_with_fine_tuning_on_posioned_data(os.path.join('.models', 'badnets_mnist_2.00.pth'))
 # writer.add_figure('bvb_up_ft_pd', show_prun_acc(result), global_step=0)
 # result = prune_with_fine_tuning_on_clean_data(os.path.join('.models', 'badnets_mnist_2.00.pth'))
 # writer.add_figure('bvb_up_ft_oc', show_prun_acc(result), global_step=0)
-result = distill_and_test(writer)
-show_distill_acc(result)
-writer.close()
+# result = distill_and_test(writer)
+# show_distill_acc(result)
+# writer.close()

@@ -102,6 +102,7 @@ def train_poisoned_data(epsilon):
 
 
 if __name__ == "__main__":
+    '''
     epsilon = -1
     for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
         cmd, value = each
@@ -112,3 +113,5 @@ if __name__ == "__main__":
     if epsilon == -1:
         epsilon = 0
     train_poisoned_data(epsilon)
+    '''
+    train_benign_resnet50()

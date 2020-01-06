@@ -1,6 +1,7 @@
 import types
 from typing import Any, AnyStr, Callable, Dict, Union
 import torch
+import torch.nn as nn
 from torch import Tensor, optim as O
 from torch.nn.modules import loss as L
 from torch.nn.modules.loss import _Loss
@@ -13,12 +14,13 @@ from datetime import datetime
 from logger import Logger
 
 _DEFAULT_DEVICE = 'cuda'
-_DEFAULT_LR = 0.9
-_DEFAULT_MOMENTUM = 0.1
+_DEFAULT_LR = 0.1
+_DEFAULT_MOMENTUM = 0.9
 _DEFAULT_BATCH_SIZE = 50
 _DEFAULT_NUM_WORKER = 8
-_DEFAULT_EPOCHS = 8
+_DEFAULT_EPOCHS = 10
 _DEFAULT_STEPS_TO_LOG = 100
+_DEFAULT_LR_DECAY_STEPS = 4
 
 @dataclass
 class HyperParameter:
@@ -75,6 +77,7 @@ class Trainer(object):
             self.epochs = hp.epochs
             self.schedular = hp.schedular
             return
+        
         self.schedular = schedular
         self.validationset = validationset
         self.criterion = resolve_criterion(criterion)
@@ -100,11 +103,12 @@ class Trainer(object):
                 loss = self.criterion(y_hat, labels)
                 loss.backward()
                 self.optimizer.step()
-                ep_loss += loss
-                if self.schedular is not None:
-                    self.schedular.step()
+                ep_loss += loss.item()
+                
+            if self.schedular is not None:
+                self.schedular.step()
 
-            Logger.clog_with_tag("LOG", f"{datetime.now().strftime('%m-%d-%H:%M:%S')} -- Epoch: {ep}, Loss: {ep_loss / (len(self.dataset) / self.batch_size)}, Time: {datetime.now()-estart}", tag_color=Logger.color.YELLOW)
+            Logger.clog_with_tag("LOG", f"{datetime.now().strftime('%m-%d-%H:%M:%S')} -- Epoch: {ep}, Loss: {ep_loss / (len(self.dataset))}, Time: {datetime.now()-estart}", tag_color=Logger.color.YELLOW)
         
     @staticmethod
     def test(model, dataset, device='cuda'):
@@ -116,6 +120,15 @@ class Trainer(object):
             correct += len(match.nonzero())
         return correct
 
+def lazy_init(model):
+    optimizer = O.SGD(model.parameters(), lr=_DEFAULT_LR, momentum=_DEFAULT_MOMENTUM)
+    schedular = O.lr_scheduler.StepLR(optimizer, step_size=_DEFAULT_LR_DECAY_STEPS, gamma=0.1)
+
+    hp = HyperParameter(optimizer=optimizer, schedular=schedular, 
+        criterion=nn.CrossEntropyLoss(), device=_DEFAULT_DEVICE, batch_size=_DEFAULT_BATCH_SIZE, epochs=_DEFAULT_EPOCHS)
+    return hp
+
+
 if __name__ == "__main__":
     import os
     from torchvision import datasets, transforms
@@ -125,10 +138,14 @@ if __name__ == "__main__":
     dl = DataLoader(ds, batch_size=100, num_workers=8, shuffle=True)
 
     model = MNISTNetwork().to('cuda')
-    t = Trainer(model, dl, 'cuda')
+    model.train()
+
+
+    t = Trainer(model, dl, device='cuda', hp=lazy_init(model))
 
     t.train()
 
+    model.eval()
     ds = datasets.MNIST('.data', train=False, download=False, transform=transforms.Compose([transforms.ToTensor()]))
     dl = DataLoader(ds, batch_size=50, num_workers=8, shuffle=True)
 
@@ -141,4 +158,4 @@ if __name__ == "__main__":
 
     correct = correct / len(ds)
     print(correct)
-    torch.save(model.state_dict(), os.path.join('.models', f"mnist_{correct:.3f}.pth"))
+    # torch.save(model.state_dict(), os.path.join('.models', f"mnist_{correct:.3f}.pth"))
