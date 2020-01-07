@@ -18,6 +18,7 @@ NUM_WORKER = 8
 EPOCHS = 210
 LR_DECAY_STEPS = 90
 
+torch.backends.cudnn.benchmark = True
 '''
 # Preprocess 4 ImageNet based ResNet
 preprocess = transforms.Compose([
