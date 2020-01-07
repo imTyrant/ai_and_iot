@@ -12,13 +12,16 @@ from resnet_4_cifar10 import ResNet50
 import os
 import sys
 
+MODEL_PATH = '.models/cifar10_resnet'
 DEVICE = 'cuda:0'
 BATCH_SIZE = 100
 NUM_WORKER = 8
 EPOCHS = 210
 LR_DECAY_STEPS = 90
 
-torch.backends.cudnn.benchmark = True
+
+torch.backends.cudnn.benchmark = True # For improving training efficiency
+
 '''
 # Preprocess 4 ImageNet based ResNet
 preprocess = transforms.Compose([
@@ -71,7 +74,7 @@ def train_benign_resnet50():
 
     print(f"{result / len(testset)}")
 
-    model_path = os.path.join('.models', f'badnets_cifar_resnet.pth')
+    model_path = os.path.join(MODEL_PATH, f'badnets_cifar_resnet.pth')
 
     torch.save(model.state_dict(), model_path)
 
@@ -88,7 +91,7 @@ def train_poisoned_data(epsilon):
 
     trainer.train()
 
-    model_path = os.path.join('.models', f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
     torch.save(model.state_dict(), model_path)    
 
     model.eval()
