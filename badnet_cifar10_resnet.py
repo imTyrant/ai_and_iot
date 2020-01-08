@@ -60,7 +60,7 @@ def lazy_init(model):
         "schedular":schedular, 
         "criterion":nn.CrossEntropyLoss(),
         "batch_size":BATCH_SIZE,
-        "epochs":16,
+        "epochs":EPOCHS,
         "device":DEVICE,
     }
 
