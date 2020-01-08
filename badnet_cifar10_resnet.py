@@ -74,7 +74,7 @@ def train_benign_resnet50():
     model = torchvision.models.resnet50(num_classes=10).to(DEVICE)
     trainer = Trainer(model, train_data, validationset=test_data, **lazy_init(model))
     trainer.train()
-    # torch.save(model.state_dict(), model_path)
+    torch.save(model.state_dict(), model_path)
 
     model.eval()
     _, accuracy = Trainer.test(model, test_data, DEVICE)
