@@ -71,7 +71,7 @@ def train_benign_resnet50():
     testset = datasets.CIFAR10('.data', train=False, transform=preprocess)
     test_data = DataLoader(testset, batch_size=BATCH_SIZE, num_workers=NUM_WORKER, shuffle=True)
 
-    model = torchvision.models.resnet50(num_classes=10).to(DEVICE)
+    model = get_resnet50_mode_for_cifar10().to(DEVICE)
     trainer = Trainer(model, train_data, validationset=test_data, **lazy_init(model))
     trainer.train()
     torch.save(model.state_dict(), model_path)
@@ -95,8 +95,7 @@ def train_poisoned_data(epsilon):
     
     model.eval()
     _, success_rate = Trainer.test(model, poison_test_data, DEVICE)
-    result = Trainer.test(model, benign_test_data, DEVICE)
-    accuracy = result / len(benign_testset)
+    _, accuracy = Trainer.test(model, benign_test_data, DEVICE)
     Logger.clog_with_tag("Rate", f"Accuracy::{accuracy:.4f}\tAttack@{epsilon:.6f}::{success_rate:.4f}", tag_color=Logger.color.GREEN)
 
     with open(model_path.replace('.pth', '.txt'), 'w+') as logger:
@@ -107,7 +106,7 @@ def train_poisoned_data(epsilon):
 
 if __name__ == "__main__":
     epsilon = -1
-    nop = True
+    nobd = True
     for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
         cmd, value = each
         if cmd == '--gpu':
@@ -115,9 +114,9 @@ if __name__ == "__main__":
         if cmd == '--eps':
             epsilon = float(value)
         if cmd == '--nobd':
-            nop = bool(value)
+            nobd = bool(int(value))
     
-    if nop:
+    if nobd:
         Logger.clog_with_tag(f"Log", f"Going to train model@{DEVICE} on benign data", tag_color=Logger.color.RED)
         train_benign_resnet50()
     else:
