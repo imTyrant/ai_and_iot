@@ -12,13 +12,14 @@ from dataclasses import dataclass, field
 
 from datetime import datetime
 from logger import Logger
+import copy
 
 _DEFAULT_DEVICE = 'cuda'
 _DEFAULT_LR = 0.1
 _DEFAULT_MOMENTUM = 0.9
 _DEFAULT_BATCH_SIZE = 50
 _DEFAULT_NUM_WORKER = 8
-_DEFAULT_EPOCHS = 10
+_DEFAULT_EPOCHS = 20
 _DEFAULT_STEPS_TO_LOG = 100
 _DEFAULT_LR_DECAY_STEPS = 4
 
@@ -32,13 +33,18 @@ class HyperParameter:
     batch_size:int = _DEFAULT_BATCH_SIZE
     epochs:int = _DEFAULT_EPOCHS
 
-
-
 class Trainer(object):
     def __init__(self, model: Module, dataset:DataLoader, device=None, validationset=None,
-                    optimizer:Optimizer=None, schedular=None, criterion=None,
-                    batch_size=_DEFAULT_BATCH_SIZE, epochs=_DEFAULT_EPOCHS, steps_to_log=_DEFAULT_STEPS_TO_LOG,
-                    hp: HyperParameter=None,) -> None:
+                    criterion=None, # Loss function
+                    optimizer=None, # Optimizer
+                    schedular=None, # Learning-rate schedular
+                    epochs=_DEFAULT_EPOCHS, # Training epochs
+                    batch_size=_DEFAULT_BATCH_SIZE, # Batch size
+                    steps_to_log=_DEFAULT_STEPS_TO_LOG, # Print log per {steps_to_log} iterations in one epochs
+                    chekpoint_path=None, # Path to save model checkpoint
+                    early_drop_rate:Union[float, int]=-1, # Whether early drop or not.
+                    ) -> None:
+        # In case
         def resolve_criterion(criterion):
             if criterion is None:
                 return L.CrossEntropyLoss()
@@ -47,7 +53,7 @@ class Trainer(object):
                     return L.CrossEntropyLoss()
             elif isinstance(criterion, _Loss):
                 return criterion
-        
+        # In case
         def resolve_optimer(optimizer):
             if optimizer is None:
                 return O.SGD(self.model.parameters(), _DEFAULT_LR, _DEFAULT_MOMENTUM)
@@ -69,30 +75,41 @@ class Trainer(object):
 
         self.dataset = dataset
         self.steps_to_log = steps_to_log
+        self.chekpoint_path = chekpoint_path
 
-        if hp is not None:
-            self.criterion = resolve_criterion(hp.criterion)
-            self.optimizer = resolve_optimer(hp.optimizer)
-            self.batch_size = hp.batch_size
-            self.epochs = hp.epochs
-            self.schedular = hp.schedular
-            return
-        
         self.schedular = schedular
         self.validationset = validationset
         self.criterion = resolve_criterion(criterion)
         self.optimizer = resolve_optimer(optimizer)
         self.batch_size = batch_size
         self.epochs = epochs
+        
+        if isinstance(early_drop_rate, float):
+            self.early_drop_epochs = int(early_drop_rate * self.epochs)
+        elif isinstance(early_drop_rate, int):
+            self.early_drop_epochs = early_drop_rate
+        else:
+            self.early_drop_epochs = -1
 
     def train(self):
+        def get_best_model():
+            if self.chekpoint_path is None:
+                self.model.load_state_dict(best_model_param)
+            else:
+                self.model.load_state_dict(torch.load(self.chekpoint_path, map_location=self.device))
+        
+        best_acc = -1.
+        best_model_param = None
+        best_model_epoch = 0
+
         self.model.zero_grad()
         for ep in range(self.epochs):
+            self.model.train()
             estart = datetime.now()
             ep_loss = .0
             for it, (data, labels) in enumerate(self.dataset):
                 if it % self.steps_to_log == 0:
-                    Logger.clog_with_tag("LOG", f"Epoch: {ep}, Iteration: {it}", tag_color=Logger.color.YELLOW, ender='\r')
+                    Logger.clog_with_tag("LOG", f"Epoch: {ep}\t Iteration: {it}", tag_color=Logger.color.YELLOW, ender='\r')
 
                 data: Tensor
                 labels: Tensor
@@ -108,45 +125,74 @@ class Trainer(object):
             if self.schedular is not None:
                 self.schedular.step()
 
-            Logger.clog_with_tag("LOG", f"{datetime.now().strftime('%m-%d-%H:%M:%S')} -- Epoch: {ep}, Loss: {ep_loss / (len(self.dataset))}, Time: {datetime.now()-estart}", tag_color=Logger.color.YELLOW)
+            validating_result = ""
+            if self.validationset is not None:
+                self.model.eval()
+                _, acc = Trainer.test(self.model, self.validationset, self.device)
+                # A better model than before
+                if acc > best_acc:
+                    best_acc = acc
+                    lag = ep - best_model_epoch # Denote how much epchos have passed since last best model.
+                    best_model_epoch = ep
+                    # Need checkpoint?
+                    if self.chekpoint_path is None:
+                        best_model_param = copy.deepcopy(self.model.state_dict())
+                    else:
+                        torch.save(self.model.state_dict(), self.chekpoint_path)
+                    # Early drop?
+                    if self.early_drop_epochs > 0:
+                        if lag > self.early_drop_epochs:
+                            get_best_model()
+                            return self.model
+                validating_result = f"Acc: {acc:.6f}\t"
+
+            one_epoch_time = datetime.now() - estart
+            one_epoch_loss = ep_loss / len(self.dataset)
+            Logger.clog_with_tag(f"{datetime.now().strftime('%m-%d-%H:%M:%S')}", 
+                    f"Epoch: {ep}\t Loss: {one_epoch_loss:.6f}\t {validating_result} Time: {one_epoch_time}",
+                    tag_color=Logger.color.YELLOW)
         
+        get_best_model()
+        return self.model
+    
     @staticmethod
-    def test(model, dataset, device='cuda'):
+    def test(model: Module, dataset: DataLoader, device):
         correct = 0
         for i, (data, labels) in enumerate(dataset):
             data, labels = data.to(device), labels.to(device)
             _, y_hat = model(data).max(1)
             match = (y_hat == labels)
             correct += len(match.nonzero())
-        return correct
+        return correct, (correct / len(dataset.dataset))
 
-def lazy_init(model):
-    optimizer = O.SGD(model.parameters(), lr=_DEFAULT_LR, momentum=_DEFAULT_MOMENTUM)
-    schedular = O.lr_scheduler.StepLR(optimizer, step_size=_DEFAULT_LR_DECAY_STEPS, gamma=0.1)
-
-    hp = HyperParameter(optimizer=optimizer, schedular=schedular, 
-        criterion=nn.CrossEntropyLoss(), device=_DEFAULT_DEVICE, batch_size=_DEFAULT_BATCH_SIZE, epochs=_DEFAULT_EPOCHS)
-    return hp
 
 
 if __name__ == "__main__":
     import os
     from torchvision import datasets, transforms
-    from mnist_network import MNISTNetwork
+    from networks import MNISTNetwork
 
-    ds = datasets.MNIST('.data', train=True, download=False, transform=transforms.Compose([transforms.ToTensor()]))
+    def lazy_init(model):
+        optimizer = O.SGD(model.parameters(), lr=_DEFAULT_LR, momentum=_DEFAULT_MOMENTUM)
+        schedular = O.lr_scheduler.StepLR(optimizer, step_size=_DEFAULT_LR_DECAY_STEPS, gamma=0.1)
+
+        hp = {"optimizer":optimizer, "schedular":schedular, 
+            "criterion":nn.CrossEntropyLoss(), "batch_size":_DEFAULT_BATCH_SIZE, "epochs":_DEFAULT_EPOCHS}
+        return hp
+
+    ds = datasets.MNIST('.data', train=True, download=True, transform=transforms.Compose([transforms.ToTensor()]))
     dl = DataLoader(ds, batch_size=100, num_workers=8, shuffle=True)
 
     model = MNISTNetwork().to('cuda')
     model.train()
 
 
-    t = Trainer(model, dl, device='cuda', hp=lazy_init(model))
+    t = Trainer(model, dl, device='cuda', **lazy_init(model))
 
     t.train()
 
     model.eval()
-    ds = datasets.MNIST('.data', train=False, download=False, transform=transforms.Compose([transforms.ToTensor()]))
+    ds = datasets.MNIST('.data', train=False, download=True, transform=transforms.Compose([transforms.ToTensor()]))
     dl = DataLoader(ds, batch_size=50, num_workers=8, shuffle=True)
 
     correct = 0
