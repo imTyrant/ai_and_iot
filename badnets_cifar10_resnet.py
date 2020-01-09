@@ -21,6 +21,7 @@ LR_DECAY_STEPS = 90
 DEVICE = 'cuda:0'
 torch.backends.cudnn.benchmark = True # For improving training efficiency
 
+MODEL_PATH_ROOT = '.models'
 MODEL_PATH = '.models/cifar10_resnet'
 
 '''
@@ -115,6 +116,8 @@ if __name__ == "__main__":
             epsilon = float(value)
         if cmd == '--nobd':
             nobd = bool(int(value))
+        if cmd == '--mp':
+            MODEL_PATH = os.path.join(MODEL_PATH_ROOT, str(value))
     
     if nobd:
         Logger.clog_with_tag(f"Log", f"Going to train model@{DEVICE} on benign data", tag_color=Logger.color.RED)
