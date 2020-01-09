@@ -18,6 +18,6 @@ class MNISTNetwork(Module):
         x = self.pool2(F.relu(self.conv2(x)))
         x = x.view(-1, 512)
         x = F.relu(self.fc1(x))
-        self.logits = self.fc2(x)
+        self.logits = self.fc2(x) #! Leave here unchanged, fix later.
 
-        return F.softmax(self.logits, dim=1)
+        return F.softmax(self.logits, dim=1) #! Leave here unchanged, fix later.
