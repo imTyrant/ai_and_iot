@@ -8,9 +8,11 @@ import torch.optim as O
 from torchvision import transforms, datasets
 from poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
 from networks import resnet
+from pruners import MagnitudePruner
 
 import os
 import sys
+import json
 from logger import Logger
 
 BATCH_SIZE = 100
@@ -87,6 +89,7 @@ def train_poisoned_data(epsilon):
     poisoned_trainset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess,)
     poison_train_data = DataLoader(poisoned_trainset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
     poisoned_testset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess,)
+    shuffle_index = poisoned_testset.get_shuffle_idx()
     poison_test_data = DataLoader(poisoned_testset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
 
     model = get_resnet50_mode_for_cifar10().to(DEVICE)
@@ -99,14 +102,63 @@ def train_poisoned_data(epsilon):
     _, accuracy = Trainer.test(model, benign_test_data, DEVICE)
     Logger.clog_with_tag("Rate", f"Accuracy::{accuracy:.4f}\tAttack@{epsilon:.6f}::{success_rate:.4f}", tag_color=Logger.color.GREEN)
 
-    with open(model_path.replace('.pth', '.txt'), 'w+') as logger:
-        logger.write(f"Accuracy::{accuracy:.4f}\nAttack@{epsilon:.6f}::{success_rate:.6f}\n")
+    log_result = {}
+    log_result["accuracy"] = accuracy
+    log_result["success_rate"] = success_rate
+    log_result["epsilon"] = epsilon
+    log_result["shuffle_idx"] = shuffle_index
+
+    with open(model_path.replace('.pth', '.json'), 'w+') as logger:
+        json.dump(log_result, logger)
+        # logger.write(f"Accuracy::{accuracy:.4f}\nAttack@{epsilon:.6f}::{success_rate:.6f}\n")
 
     return model, accuracy, success_rate
+
+def test_one_shot_pruning(sparsity):
+    epsilon = 0.004
+    # original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    # pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_sp_{sparsity:.2f}.pth')
+    original_model_path = os.path.join(MODEL_PATH, f'benign_cifar10_resnet.pth')
+    pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_benign_sp_{sparsity:.2f}.pth') 
+    
+
+    # traindata = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess), 
+    #                         batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+    p_testdata = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
+                            batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+
+    model = resnet.resnet56().to(DEVICE)
+    model.load_state_dict(torch.load(original_model_path, map_location=DEVICE))    
+
+    # model.eval()
+    # _, bacc = Trainer.test(model, benign_test_data, DEVICE)
+    # model.train()
+
+    trainer = {
+        "device": DEVICE,
+        "batch_size": BATCH_SIZE,
+        "epochs": 50,
+        "criterion": torch.nn.CrossEntropyLoss(),
+        "optimizer": lambda m : torch.optim.SGD(m, lr=0.01, momentum=0.9),
+        "dataset": benign_train_data
+    }
+
+    pruner = MagnitudePruner(model, DEVICE, fine_tuning=False, trainer=trainer, sparsity=sparsity)
+    pruner.prune()
+    torch.save(model.state_dict(), pruned_model_path)
+
+    model.eval()
+    _, pacc = Trainer.test(model, benign_test_data, DEVICE)
+    _, pacc_att = Trainer.test(model, p_testdata, DEVICE)
+
+    with open(pruned_model_path.replace('.pth', '.txt'), 'w+') as logger:
+        logger.write(f"Accuracy@{sparsity:.4f}::{pacc:.6f}\nAttack::{pacc_att:.6f}\n")
+    
 
 
 if __name__ == "__main__":
     epsilon = -1
+    sparsity = -1
     nobd = True
     for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
         cmd, value = each
@@ -118,12 +170,19 @@ if __name__ == "__main__":
             nobd = bool(int(value))
         if cmd == '--mp':
             MODEL_PATH = os.path.join(MODEL_PATH_ROOT, str(value))
+        if cmd == '--sp':
+            sparsity = float(value)
     
     if nobd:
         Logger.clog_with_tag(f"Log", f"Going to train model@{DEVICE} on benign data", tag_color=Logger.color.RED)
         train_benign_resnet50()
-    else:
+    elif epsilon > 0:
         if epsilon == -1:
             epsilon = 0.001
         Logger.clog_with_tag("Log", f"Going to train model@{DEVICE} on poisoned data with rate {epsilon}", tag_color=Logger.color.RED)
         train_poisoned_data(epsilon)
+    elif sparsity > 0:
+       Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}", tag_color=Logger.color.RED) 
+       test_one_shot_pruning(sparsity)
+    else:
+        print("select mode")
