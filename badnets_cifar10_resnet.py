@@ -114,45 +114,51 @@ def train_poisoned_data(epsilon):
 
     return model, accuracy, success_rate
 
-def test_one_shot_pruning(sparsity):
-    epsilon = 0.004
-    # original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
-    # pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_sp_{sparsity:.2f}.pth')
-    original_model_path = os.path.join(MODEL_PATH, f'benign_cifar10_resnet.pth')
-    pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_benign_sp_{sparsity:.2f}.pth') 
-    
+def test_one_shot_pruning(sparsity, epsilon= 0.004):
+    original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
 
-    # traindata = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess), 
-    #                         batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
-    p_testdata = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
+    meta = {}
+    with open(original_model_path.replace(".pth", ".json"), "r") as f:
+        meta = json.load(f)
+
+    poisoned_train_data = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon,
+                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess),
+                                    batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+    
+    poisoned_test_data = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
                             batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
 
-    model = resnet.resnet56().to(DEVICE)
-    model.load_state_dict(torch.load(original_model_path, map_location=DEVICE))    
+    train_type = ["benign_data", "poisoned_data"]
+    for ti, detail in enumerate(train_type):
+        Logger.clog_with_tag(f"Log", f"Pruning using {detail}", tag_color=Logger.color.RED)
+        pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_sp_{sparsity:.2f}_{detail}.pth')
 
-    # model.eval()
-    # _, bacc = Trainer.test(model, benign_test_data, DEVICE)
-    # model.train()
+        model = resnet.resnet56().to(DEVICE)
+        model.load_state_dict(torch.load(original_model_path, map_location=DEVICE)) 
 
-    trainer = {
-        "device": DEVICE,
-        "batch_size": BATCH_SIZE,
-        "epochs": 50,
-        "criterion": torch.nn.CrossEntropyLoss(),
-        "optimizer": lambda m : torch.optim.SGD(m, lr=0.01, momentum=0.9),
-        "dataset": benign_train_data
-    }
+        trainer = {
+            "device": DEVICE,
+            "batch_size": BATCH_SIZE,
+            "epochs": 50,
+            "criterion": torch.nn.CrossEntropyLoss(),
+            "optimizer": lambda m : torch.optim.SGD(m, lr=0.01, momentum=0.9),
+            "dataset": benign_train_data if detail == "benign_data" else poisoned_train_data
+        }
 
-    pruner = MagnitudePruner(model, DEVICE, fine_tuning=False, trainer=trainer, sparsity=sparsity)
-    pruner.prune()
-    torch.save(model.state_dict(), pruned_model_path)
+        pruner = MagnitudePruner(model, DEVICE, fine_tuning=False, trainer=trainer, sparsity=sparsity)
+        pruner.prune()
+        torch.save(model.state_dict(), pruned_model_path)
 
-    model.eval()
-    _, pacc = Trainer.test(model, benign_test_data, DEVICE)
-    _, pacc_att = Trainer.test(model, p_testdata, DEVICE)
+        model.eval()
+        _, pacc = Trainer.test(model, benign_test_data, DEVICE)
+        _, pacc_att = Trainer.test(model, poisoned_test_data, DEVICE)
+        
+        logger = {}
+        logger["accuracy"] = pacc
+        logger["success_rate"] = pacc_att
 
-    with open(pruned_model_path.replace('.pth', '.txt'), 'w+') as logger:
-        logger.write(f"Accuracy@{sparsity:.4f}::{pacc:.6f}\nAttack::{pacc_att:.6f}\n")
+        with open(pruned_model_path.replace('.pth', '.json'), 'w+') as f:
+            json.dump(logger, f)
     
 
 
@@ -160,6 +166,7 @@ if __name__ == "__main__":
     epsilon = -1
     sparsity = -1
     nobd = True
+    mode = "tb"
     for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
         cmd, value = each
         if cmd == '--gpu':
@@ -172,17 +179,19 @@ if __name__ == "__main__":
             MODEL_PATH = os.path.join(MODEL_PATH_ROOT, str(value))
         if cmd == '--sp':
             sparsity = float(value)
+        if cmd == '--mode':
+            mode = value
     
-    if nobd:
+    if nobd or mode == "tb":
         Logger.clog_with_tag(f"Log", f"Going to train model@{DEVICE} on benign data", tag_color=Logger.color.RED)
         train_benign_resnet50()
-    elif epsilon > 0:
+    elif mode == "tp" and epsilon > 0:
         if epsilon == -1:
             epsilon = 0.001
         Logger.clog_with_tag("Log", f"Going to train model@{DEVICE} on poisoned data with rate {epsilon}", tag_color=Logger.color.RED)
         train_poisoned_data(epsilon)
-    elif sparsity > 0:
-       Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}", tag_color=Logger.color.RED) 
-       test_one_shot_pruning(sparsity)
+    elif mode == "prune" and sparsity > 0:
+       Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED) 
+       test_one_shot_pruning(sparsity, epsilon)
     else:
         print("select mode")
