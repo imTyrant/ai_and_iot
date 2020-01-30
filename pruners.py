@@ -93,7 +93,7 @@ class MagnitudePruner(object):
                 size *= each
             k = int(size * step_sparsity[layer])
             if k != 0:
-                threshold = parameter.abs().flatten().topk(k)[0].min()
+                threshold = parameter.abs().flatten().topk(k, largest=False)[0].max()
                 self.mask[layer] = torch.gt(torch.abs(parameter), threshold).type(parameter.type())
                 
                 # indices = self._find_top_k_in_tensor(k, parameter.detach())
