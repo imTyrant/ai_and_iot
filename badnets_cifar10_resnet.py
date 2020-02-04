@@ -9,6 +9,7 @@ from torchvision import transforms, datasets
 from poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
 from networks import resnet
 from pruners import MagnitudePruner
+from knowledge_distiller import KnowledgeDistillation
 
 import os
 import sys
@@ -160,6 +161,47 @@ def test_one_shot_pruning(sparsity, epsilon= 0.004):
         with open(pruned_model_path.replace('.pth', '.json'), 'w+') as f:
             json.dump(logger, f)
     
+def test_distillation(epsilon):
+    original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    with open(original_model_path.replace(".pth", ".json"), "r") as f:
+        meta = json.load(f)
+
+    poisoned_train_data = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon,
+                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess),
+                                    batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+    
+    poisoned_test_data = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
+                            batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+
+    def closure(teacher, student, ds):
+        dis = KnowledgeDistillation(teacher, student, ds, DEVICE, build_in_logit=False, temperature=100.,
+                                    epoch=EPOCHS, batch_size=BATCH_SIZE, num_work=NUM_WORKER)
+        student = dis.distill()
+        student.eval()
+        _, accuracy = Trainer.test(student, benign_test_data, DEVICE)
+        _, success_rate = Trainer.test(student, poisoned_test_data, DEVICE)
+        return clean, pd
+
+    teacher = get_resnet50_mode_for_cifar10().to(DEVICE)
+    teacher.load_state_dict(torch.load(original_model_path, map_location=DEVICE))
+
+    for tp in ['clean_data', 'poisoned_data']:
+        Logger.clog_with_tag(f"Log", f"Distiling, using {tp}...", tag_color=Logger.color.GREEN)
+
+        distilled_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_distilled_{tp}.pth')
+        student = get_resnet50_mode_for_cifar10().to(DEVICE)
+
+        accuracy, success_rate = closure(teacher, student, benign_train_data)
+        Logger.clog_with_tag(f"Log", f"Student accuracy: {accuracy:.5f}, success rate: {success_rate:.5f}")
+        
+        torch.save(student.state_dict(), pruned_model_path)
+
+        logger = {}
+        logger["accuracy"] = accuracy
+        logger["success_rate"] = success_rate
+
+        with open(distilled_model_path.replace('.pth', '.json'), 'w+') as f:
+            json.dump(logger, f)
 
 
 if __name__ == "__main__":
@@ -191,7 +233,10 @@ if __name__ == "__main__":
         Logger.clog_with_tag("Log", f"Going to train model@{DEVICE} on poisoned data with rate {epsilon}", tag_color=Logger.color.RED)
         train_poisoned_data(epsilon)
     elif mode == "prune" and sparsity > 0:
-       Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED) 
-       test_one_shot_pruning(sparsity, epsilon)
+        Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED) 
+        test_one_shot_pruning(sparsity, epsilon)
+    elif mode == "distill" and epsilon > 0:
+        Logger.clog_with_tag("Log", f"Going to ditill model@{DEVICE}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED)
+        test_distillation(epsilon)
     else:
         print("select mode")
