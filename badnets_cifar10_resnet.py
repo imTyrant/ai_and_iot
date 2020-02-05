@@ -180,7 +180,7 @@ def test_distillation(epsilon):
         student.eval()
         _, accuracy = Trainer.test(student, benign_test_data, DEVICE)
         _, success_rate = Trainer.test(student, poisoned_test_data, DEVICE)
-        return clean, pd
+        return accuracy, success_rate
 
     teacher = get_resnet50_mode_for_cifar10().to(DEVICE)
     teacher.load_state_dict(torch.load(original_model_path, map_location=DEVICE))
