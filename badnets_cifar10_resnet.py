@@ -194,7 +194,7 @@ def test_distillation(epsilon):
         accuracy, success_rate = closure(teacher, student, benign_train_data)
         Logger.clog_with_tag(f"Log", f"Student accuracy: {accuracy:.5f}, success rate: {success_rate:.5f}")
         
-        torch.save(student.state_dict(), pruned_model_path)
+        torch.save(student.state_dict(), distilled_model_path)
 
         logger = {}
         logger["accuracy"] = accuracy
