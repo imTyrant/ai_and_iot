@@ -191,7 +191,7 @@ def test_distillation(epsilon):
         distilled_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_distilled_{tp}.pth')
         student = get_resnet50_mode_for_cifar10().to(DEVICE)
 
-        train_data = benign_test_data if tp == 'clean_data' else poisoned_train_data
+        train_data = benign_train_data if tp == 'clean_data' else poisoned_train_data
         accuracy, success_rate = closure(teacher, student, train_data)
         Logger.clog_with_tag(f"Log", f"Student accuracy: {accuracy:.5f}, success rate: {success_rate:.5f}")
         
