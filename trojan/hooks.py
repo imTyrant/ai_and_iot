@@ -75,15 +75,12 @@ if __name__ == "__main__":
         data, label = data.to(DEVICE), label.to(DEVICE)
         print(data.shape)
 
-        fh = ForwardHook(net.fc2)
+        fh = ForwardHook(net.fc1)
         fh.hook()
 
-        data: torch.Tensor
-        data.requires_grad_()
-        print(data.grad)
         result = net(data)
 
-        print(type(fh.module_input[0]))
+        print(fh.module_output)
         # fh.module_input[0][0].backward()
         # print(data.grad)
 
