@@ -132,7 +132,7 @@ class Trainer(object):
                 # A better model than before
                 if acc > best_acc:
                     best_acc = acc
-                    lag = ep - best_model_epoch # Denote how much epchos have passed since last best model.
+                    lag = ep - best_model_epoch # Denote how much epochs have passed since last best model.
                     best_model_epoch = ep
                     # Need checkpoint?
                     if self.chekpoint_path is None:
@@ -152,7 +152,9 @@ class Trainer(object):
                     f"Epoch: {ep}\t Loss: {one_epoch_loss:.6f}\t {validating_result} Time: {one_epoch_time}",
                     tag_color=Logger.color.YELLOW)
         
-        get_best_model()
+        if self.validationset is not None:
+            get_best_model()
+
         return self.model
     
     @staticmethod

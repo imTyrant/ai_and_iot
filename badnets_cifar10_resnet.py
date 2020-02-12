@@ -6,10 +6,10 @@ import torch.nn as nn
 import torch.functional as F
 import torch.optim as O
 from torchvision import transforms, datasets
-from poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
+from badnets.poisoning_data import PoisonedCIFAR10, bomb_pattern_cifar
 from networks import resnet
-from pruners import MagnitudePruner
-from knowledge_distiller import KnowledgeDistillation
+from compression.pruners import MagnitudePruner
+from compression.knowledge_distiller import KnowledgeDistillation
 
 import os
 import sys
@@ -86,11 +86,13 @@ def train_benign_resnet50():
     return model, accuracy
 
 def train_poisoned_data(epsilon):
-    model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    model_path = os.path.join(MODEL_PATH, f'badnets_cifar10_{(epsilon * 1000):.4f}.pth')
     poisoned_trainset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess,)
     poison_train_data = DataLoader(poisoned_trainset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+    shuffle_index = poisoned_trainset.get_shuffle_idx()
+
+
     poisoned_testset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess,)
-    shuffle_index = poisoned_testset.get_shuffle_idx()
     poison_test_data = DataLoader(poisoned_testset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
 
     model = get_resnet50_mode_for_cifar10().to(DEVICE)
@@ -116,7 +118,7 @@ def train_poisoned_data(epsilon):
     return model, accuracy, success_rate
 
 def test_one_shot_pruning(sparsity, epsilon= 0.004):
-    original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    original_model_path = os.path.join(MODEL_PATH, f'badnets_cifar10_{(epsilon * 1000):.4f}.pth')
 
     meta = {}
     with open(original_model_path.replace(".pth", ".json"), "r") as f:
@@ -162,7 +164,7 @@ def test_one_shot_pruning(sparsity, epsilon= 0.004):
             json.dump(logger, f)
     
 def test_distillation(epsilon):
-    original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+    original_model_path = os.path.join(MODEL_PATH, f'badnets_cifar10_{(epsilon * 1000):.4f}.pth')
     with open(original_model_path.replace(".pth", ".json"), "r") as f:
         meta = json.load(f)
 

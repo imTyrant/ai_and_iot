@@ -1,3 +1,8 @@
+import sys
+import os
+PROJECT_ROOT_PATH = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(PROJECT_ROOT_PATH)
+
 from collections import namedtuple
 from typing import List, Tuple, Union
 import torch
