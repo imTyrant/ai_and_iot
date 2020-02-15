@@ -16,6 +16,7 @@ from trojan.functions import LayerType, TriggerGenerator
 from networks import MNISTNetwork
 from train import Trainer
 from logger import Logger
+import json
 
 DEVICE = 'cuda:0'
 BATCH_SIZE = 100
@@ -83,7 +84,7 @@ def find_best_trigger(round=1, seeds=None, save=False):
     model = MNISTNetwork().to(DEVICE)
     model.load_state_dict(torch.load(PRE_TRAINED_MODEL, map_location=DEVICE))
 
-    # model.eval()
+    model.eval()
     units = tfs.find_topk_internal_neuron(model.fc1, topk=1, module_type=LayerType.FullConnect)
 
     tg = TriggerGenerator(model=model, mask=MASK.to(DEVICE) , layers=[model.fc1], neuron_indices=[units], 
@@ -116,6 +117,7 @@ def simple_train_trojan_mnist(eps):
                 num_workers=NUM_WORKERS, shuffle=True, batch_size=BATCH_SIZE)
 
     model = MNISTNetwork().to(DEVICE)
+    model.load_state_dict(torch.load(PRE_TRAINED_MODEL, map_location=DEVICE))
 
     for param in model.conv1.parameters():
         param.requires_grad = False
@@ -131,7 +133,7 @@ def simple_train_trojan_mnist(eps):
     model.eval()
     _, success_rate = Trainer.test(model, poisoned_test_data, DEVICE)
     _, accuracy = Trainer.test(model, benign_test_data, DEVICE)
-    Logger.clog_with_tag("Rate", f"Accuracy::{accuracy:.4f}\tAttack@{epsilon:.6f}::{success_rate:.4f}", tag_color=Logger.color.GREEN)
+    Logger.clog_with_tag("Rate", f"Accuracy::{accuracy:.4f}\tAttack@{eps:.6f}::{success_rate:.4f}", tag_color=Logger.color.GREEN)
 
     log_result = {}
     log_result["accuracy"] = accuracy
@@ -142,7 +144,61 @@ def simple_train_trojan_mnist(eps):
     with open(model_path.replace('.pth', '.json'), 'w+') as logger:
         json.dump(log_result, logger)
     
+def misc():
+    original_model = MNISTNetwork().to(DEVICE)
+    original_model.load_state_dict(torch.load(PRE_TRAINED_MODEL, map_location=DEVICE))
 
+    trained_one = MNISTNetwork().to(DEVICE)
+    trained_one.load_state_dict(torch.load('.models/trojan_mnist/trojan_mnist_1.0000.pth', map_location=DEVICE))
+
+    trained_two = MNISTNetwork().to(DEVICE)
+    trained_two.load_state_dict(torch.load('.models/trojan_mnist/trojan_mnist_6.0000.pth', map_location=DEVICE))
+
+    def get_param(model):
+        rtn = []
+        for layer, param in enumerate(model.parameters()):
+            print(param.shape)
+            rtn.append(param)
+        return rtn
+
+    pso = get_param(original_model)
+    ps1 = get_param(trained_one)
+    ps2 = get_param(trained_two)
+
+    for i in range(len(pso)):
+        size = 1
+        for each in pso[i].shape:
+            size *= each
+        cmp1 = len((pso[i] == ps1[i]).flatten().nonzero())
+        cmp2 = len((pso[i] == ps2[i]).flatten().nonzero())
+        cmp3 = len((ps1[i] == ps2[i]).flatten().nonzero())
+
+        print(f"In layer {i}, size: {size}\n original:trained_one = {cmp1}, original:trained_two = {cmp2}, one:two = {cmp3}")
 
 if __name__ == "__main__":
-    simple_train_trojan_mnist(0.01)
+    epsilon=0.01
+    gpu="cuda:0"
+    sp=0.
+    mode = None
+    for each in map(lambda x: (x.split('=')[0], x.split('=')[1]), sys.argv[1:]):
+        cmd, value = each
+        if cmd == '--gpu':
+            DEVICE = value
+        if cmd == '--eps':
+            epsilon = float(value)
+        if cmd == '--mp':
+            MODEL_PATH = os.path.join(MODEL_PATH_ROOT, str(value))
+        if cmd == '--sp':
+            sparsity = float(value)
+        if cmd == '--mode':
+            mode = value
+    
+    # if mode == 'trigger':
+    #     Logger.clog_with_tag(f"Work", f"Going to find trigger")
+    #     find_best_trigger()
+    if mode == 'tp':
+        Logger.clog_with_tag(f"Work", f"Going to train model@{DEVICE} on poisoned data with rate {epsilon:.6f}", tag_color=Logger.color.RED)
+        simple_train_trojan_mnist(epsilon)
+    else:
+        print("select mode")
+        misc()

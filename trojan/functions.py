@@ -199,10 +199,10 @@ def save_trigger_to_png(path, trigger): # loss occur!
         image = unloader(image)
         image.save(path)
 
-def load_trigger_from_png(path): # loss occur
+def load_trigger_from_png(path, device='cpu'): # loss occur
     loader = transforms.Compose([transforms.ToTensor()])
     image = Image.open(path)
-    trigger = loader(image).unsqueeze(0).to(self.device, torch.float)
+    trigger = loader(image).unsqueeze(0).to(device, torch.float)
     return trigger
 
 # class DataReverse(object):
