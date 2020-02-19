@@ -1,2 +1,2 @@
 from .resnet import *
-from .mnist_network import MNISTNetwork
+from .mnist_network import MNISTNetwork, MNISTNetAlt

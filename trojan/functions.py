@@ -33,8 +33,9 @@ def _find_neuron_conv2d(module: Module, topk):
     
 
 def _find_neuron_fc(module: Module, topk):
-    Ws = next(module.parameters())
-    conn_sum = Ws.detach().abs().sum(1)
+    tmp = module.parameters()
+    Ws = next(tmp)
+    conn_sum = Ws.abs().sum(1).detach()
     return conn_sum.topk(topk)[1].tolist()
     
 
@@ -64,6 +65,9 @@ def generate_trigger(model: Module,
     fh = ForwardHook(layers)
     fh.hook()
 
+    best_loss = 100000.
+    best_trigger = None
+
     for it in range(iters):
         fh.refresh() # clean up old results of hook
         model.zero_grad()
@@ -74,6 +78,7 @@ def generate_trigger(model: Module,
         else:
             layer_activation = fh.module_output
         # pick out wanted neuron(s) in selected layers(s)
+        '''
         acts = []
         for i, layer in enumerate(layers):
             units_indices = neuron_indices[i]
@@ -92,6 +97,27 @@ def generate_trigger(model: Module,
         loss = torch.tensor(0, dtype=torch.float, device=device, requires_grad=True)
         for i in range(len(acts)):
             loss = loss + (acts[i] - target[i])**2
+        '''
+        
+        target_list = []
+        for i, layer in enumerate(layer_activation):
+            t = layer.clone().detach() # type: Tensor
+            t.requires_grad = False
+            for idx in neuron_indices[i]:
+                print(t[0][idx].item(), layer.max().item())
+                t[0][idx] = threshold
+            target_list.append(t)
+
+        lfn = torch.nn.MSELoss(reduction='sum')
+
+        loss = torch.tensor(0, dtype=torch.float, device=device, requires_grad=True)
+        for i in range(len(layer_activation)):
+            loss = loss + lfn(layer_activation[i], target_list[i])
+
+        print(loss)
+        if loss.item() < best_loss:
+            best_trigger = trigger.clone().detach()
+            best_loss = loss.item()
 
         # update trigger
         loss.backward()
@@ -101,10 +127,12 @@ def generate_trigger(model: Module,
         # clip
         if clip:
             trigger.data = torch.clamp(trigger.detach(), clip_min, clip_max)
-
+        
     fh.remove() # unhook all of hooks from the model
+
     
-    return trigger.squeeze(0).detach(), mask.squeeze(0).detach()# remove batch dimension
+
+    return best_trigger.squeeze(0).detach(), mask.squeeze(0).detach()# remove batch dimension
 
 class TriggerGenerator(object):
     def __init__(self, model: Module,
@@ -167,6 +195,7 @@ class TriggerGenerator(object):
         torch.random.manual_seed(self.seed)
 
         trigger = torch.rand_like(self.mask)
+        trigger = (trigger * self.mask).detach()
 
         self.trigger, _ = generate_trigger(self.model, trigger, self.mask, self.layers, self.neuron_indices, self.threshold, 
                             self.device, self.use_layer_input, self.lr, self.iters, self.clip, self.clip_max, self.clip_min)
