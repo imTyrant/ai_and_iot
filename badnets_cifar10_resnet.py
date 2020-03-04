@@ -25,7 +25,14 @@ DEVICE = 'cuda:0'
 torch.backends.cudnn.benchmark = True # For improving training efficiency
 
 MODEL_PATH_ROOT = '.models'
-MODEL_PATH = '.models/cifar10_resnet'
+REPLACE = True
+if REPLACE:
+    MODEL_PATH = '.models/cifar10_resnet_replace'
+else:
+    MODEL_PATH = '.models/cifar10_resnet'
+
+if not os.path.exists(MODEL_PATH):
+    os.makedirs(MODEL_PATH)
 
 '''
 # Preprocess 4 ImageNet based ResNet
@@ -87,7 +94,7 @@ def train_benign_resnet50():
 
 def train_poisoned_data(epsilon):
     model_path = os.path.join(MODEL_PATH, f'badnets_cifar10_{(epsilon * 1000):.4f}.pth')
-    poisoned_trainset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess,)
+    poisoned_trainset = PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon, target=5, transform=preprocess, replace=REPLACE)
     poison_train_data = DataLoader(poisoned_trainset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
     shuffle_index = poisoned_trainset.get_shuffle_idx()
 
@@ -125,7 +132,7 @@ def test_one_shot_pruning(sparsity, epsilon= 0.004):
         meta = json.load(f)
 
     poisoned_train_data = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon,
-                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess),
+                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess, replace=REPLACE),
                                     batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
     
     poisoned_test_data = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
@@ -162,14 +169,60 @@ def test_one_shot_pruning(sparsity, epsilon= 0.004):
 
         with open(pruned_model_path.replace('.pth', '.json'), 'w+') as f:
             json.dump(logger, f)
+
+def test_iterative_pruning(sparsity, epsilon=0.01):
+    original_model_path = os.path.join(MODEL_PATH, f'badnets_mnist_{(epsilon * 1000):.4f}.pth')
+
+    meta = {}
+    with open(original_model_path.replace(".pth", ".json"), "r") as f:
+        meta = json.load(f)
+
+    poisoned_train_data = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon,
+                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess, replace=REPLACE),
+                                    batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
     
+    poisoned_test_data = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
+                            batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
+
+    train_type = ["benign_data", "poisoned_data"]
+    for ti, detail in enumerate(train_type):
+        Logger.clog_with_tag(f"Log", f"Pruning using {detail}", tag_color=Logger.color.RED)
+        pruned_model_path = os.path.join(MODEL_PATH, f'cifar10_{epsilon:.5f}_iter_sp_{sparsity:.2f}_{detail}.pth')
+
+        model = resnet.resnet56().to(DEVICE)
+        model.load_state_dict(torch.load(original_model_path, map_location=DEVICE)) 
+
+        trainer = {
+            "device": DEVICE,
+            "batch_size": BATCH_SIZE,
+            "epochs": 50,
+            "criterion": torch.nn.CrossEntropyLoss(),
+            "optimizer": lambda m : torch.optim.SGD(m, lr=0.01, momentum=0.9),
+            "dataset": benign_train_data if detail == "benign_data" else poisoned_train_data
+        }
+
+        pruner = MagnitudePruner(model, DEVICE, fine_tuning=True, pruning_steps=10, trainer=trainer, sparsity=sparsity)
+        pruner.prune()
+        torch.save(model.state_dict(), pruned_model_path)
+
+        model.eval()
+        _, pacc = Trainer.test(model, benign_test_data, DEVICE)
+        _, pacc_att = Trainer.test(model, poisoned_test_data, DEVICE)
+        
+        logger = {}
+        logger["accuracy"] = pacc
+        logger["success_rate"] = pacc_att
+
+        with open(pruned_model_path.replace('.pth', '.json'), 'w+') as f:
+            json.dump(logger, f)
+
 def test_distillation(epsilon):
     original_model_path = os.path.join(MODEL_PATH, f'badnets_cifar10_{(epsilon * 1000):.4f}.pth')
     with open(original_model_path.replace(".pth", ".json"), "r") as f:
         meta = json.load(f)
 
     poisoned_train_data = DataLoader(PoisonedCIFAR10('.data', bomb_pattern_cifar, train=True, epsilon=epsilon,
-                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess),
+                                    shuffle_idx=meta["shuffle_idx"] ,target=5, transform=preprocess, replace=REPLACE),
                                     batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKER)
     
     poisoned_test_data = DataLoader(PoisonedCIFAR10('.data', pattern=bomb_pattern_cifar, train=False, epsilon=1, only_pd=True, target=5, transform=preprocess),
@@ -238,6 +291,9 @@ if __name__ == "__main__":
     elif mode == "prune" and sparsity > 0:
         Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED) 
         test_one_shot_pruning(sparsity, epsilon)
+    elif mode == "iter_prune" and sparsity > 0:
+        Logger.clog_with_tag("Log", f"Going to prune model@{DEVICE} to sparsity {sparsity:.4f} iteratively, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED)
+        test_iterative_pruning(sparsity, epsilon)
     elif mode == "distill" and epsilon > 0:
         Logger.clog_with_tag("Log", f"Going to ditill model@{DEVICE}, epsilon is {epsilon:.4f}", tag_color=Logger.color.RED)
         test_distillation(epsilon)
