@@ -70,12 +70,13 @@ flower_pattern_cifar = '.data/trigger/flower_nobg.png'
 
 class PoisonedCIFAR10(Dataset):
     def __init__(self, root, pattern, epsilon = 0.01, pattern_size:Tuple[int, int]=(5,5), target:Union[int, Callable[[int], int]]=lambda t:t,
-                    only_pd=False, shuffle_idx:List[int]=None, transform=None, train=True, download=False, target_transform=None):
+                    replace=False, only_pd=False, shuffle_idx:List[int]=None, transform=None, train=True, download=False, target_transform=None):
         self.root = root
         self.target = target
         self.transform = transform
         self.target_transform = target_transform
         self.only_pd = only_pd
+        self.replace = replace
         for ax in pattern_size:
             if ax > 32: raise ValueError('Pattern size must be smaller than 32.')
         self.pattern_size = pattern_size
@@ -89,9 +90,11 @@ class PoisonedCIFAR10(Dataset):
         if shuffle_idx is not None:
             self.pd_num = len(shuffle_idx)
             self.shuffle_idx = shuffle_idx
+            self.shuffle_idx_set = set(self.shuffle_idx)
         else:
             self.pd_num = int(len(self.cifar10) * epsilon) if epsilon <= 1 and epsilon >=0 else 0
             self.shuffle_idx = sample([i for i in range(len(self.cifar10))], self.pd_num)
+            self.shuffle_idx_set = set(self.shuffle_idx)
 
     def get_shuffle_idx(self):
         return self.shuffle_idx
@@ -99,15 +102,94 @@ class PoisonedCIFAR10(Dataset):
     def __len__(self) -> int:
         if self.only_pd:
             return self.pd_num
+        elif self.replace:
+            return len(self.cifar10)
         else:
             return len(self.cifar10) + self.pd_num
 
     def __getitem__(self, idx: int):
-        if idx < len(self.cifar10) and not self.only_pd:
+        if self.replace:
+            img, target = self.cifar10[idx]
+            if idx in self.shuffle_idx_set:
+                img = Image.composite(self.pattern, img, self.pattern)
+                # change target
+                if isinstance(self.target, int):
+                    target = self.target
+                else:
+                    target = self.target(target)
+        elif idx < len(self.cifar10) and not self.only_pd:
             img, target = self.cifar10[idx]
         else:
             idx = idx - len(self.cifar10) if not self.only_pd else idx
             img, target = self.cifar10[self.shuffle_idx[idx]]
+            img = Image.composite(self.pattern, img, self.pattern)
+            # change target
+            if isinstance(self.target, int):
+                target = self.target
+            else:
+                target = self.target(target)
+
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return img, target
+
+
+class PoisonedSVHN(Dataset):
+    def __init__(self, root, pattern, epsilon=1., split='train', pattern_size:Tuple[int, int]=(5,5), target:Union[int, Callable[[int], int]]=lambda t:t,
+                    replace=False, only_pd=False, shuffle_idx:List[int]=None, transform=None, target_transform=None):
+        
+        self.dataset = datasets.SVHN(root, split=split)
+        self.target = target
+        self.transform = transform
+        self.target_transform = target_transform
+        self.only_pd = only_pd
+        self.replace = replace
+
+        for ax in pattern_size:
+            if ax > 32: raise ValueError('Pattern size must be smaller than 32.')
+        self.pattern_size = pattern_size
+        pim = Image.open(pattern)
+        pim = pim.resize(self.pattern_size, Image.ANTIALIAS)
+        self.pattern = Image.new("RGBA", (32, 32))
+        self.pattern.paste(pim, (32 - self.pattern_size[0], 32 - self.pattern_size[1]))
+
+        if shuffle_idx is not None:
+            self.pd_num = len(shuffle_idx)
+            self.shuffle_idx = shuffle_idx
+            self.shuffle_idx_set = set(self.shuffle_idx)
+        else:
+            self.pd_num = int(len(self.dataset) * epsilon) if epsilon <= 1 and epsilon >=0 else 0
+            self.shuffle_idx = sample([i for i in range(len(self.dataset))], self.pd_num)
+            self.shuffle_idx_set = set(self.shuffle_idx)
+        
+    def get_shuffle_idx(self):
+        return self.shuffle_idx
+    
+    def __len__(self):
+        if self.only_pd:
+            return self.pd_num
+        elif self.replace:
+            return len(self.dataset)
+        else:
+            return len(self.dataset) + self.pd_num
+        
+    def __getitem__(self, idx):
+        if self.replace:
+            img, target = self.dataset[idx]
+            if idx in self.shuffle_idx_set:
+                img = Image.composite(self.pattern, img, self.pattern)
+                # change target
+                if isinstance(self.target, int):
+                    target = self.target
+                else:
+                    target = self.target(target)
+        elif idx < len(self.dataset) and not self.only_pd:
+            img, target = self.dataset[idx]
+        else:
+            idx = idx - len(self.dataset) if not self.only_pd else idx
+            img, target = self.dataset[self.shuffle_idx[idx]]
             img = Image.composite(self.pattern, img, self.pattern)
             # change target
             if isinstance(self.target, int):
