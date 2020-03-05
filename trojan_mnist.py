@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as O
 import torch.functional as F
 
-from trojan.trojaned_data import SimpleTrojanedMNIST, ReverseMNIST
+from trojan.trojaned_mnist import SimpleTrojanedMNIST, ReverseMNIST
 import trojan.functions as tfs
 from trojan.functions import LayerType, TriggerGenerator
 from networks import MNISTNetwork, MNISTNetAlt
