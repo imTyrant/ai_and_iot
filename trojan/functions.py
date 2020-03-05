@@ -182,8 +182,7 @@ class TriggerGenerator(object):
         for i, layer in enumerate(self.layers):
             units_indices = self.neuron_indices[i]
             for index_of_unit in units_indices:
-                acts.append(layer_activation[0][i][index_of_unit].item())
-        
+                acts.append(layer_activation[i][0][index_of_unit].item())
         print(acts)
         return acts
 
@@ -195,7 +194,7 @@ class TriggerGenerator(object):
         torch.random.manual_seed(self.seed)
 
         trigger = torch.rand_like(self.mask)
-        trigger = (trigger * self.mask).detach()
+        trigger.data = (trigger * self.mask).detach()
 
         self.trigger, _ = generate_trigger(self.model, trigger, self.mask, self.layers, self.neuron_indices, self.threshold, 
                             self.device, self.use_layer_input, self.lr, self.iters, self.clip, self.clip_max, self.clip_min)
