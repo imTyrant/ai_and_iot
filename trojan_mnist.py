@@ -13,6 +13,7 @@ import torch.functional as F
 from trojan.trojaned_mnist import SimpleTrojanedMNIST, ReverseMNIST
 import trojan.functions as tfs
 from trojan.functions import LayerType, TriggerGenerator
+from trojan.hooks import ForwardHook
 from networks import MNISTNetwork, MNISTNetAlt
 from train import Trainer
 from logger import Logger
@@ -40,8 +41,8 @@ TRAINED_TRIGGER_PATH = os.path.join(MODEL_PATH, 'trigger.pth')
 MASK = torch.zeros(1,28,28, dtype=torch.float)
 MASK[0,21:,21:] = 1
 THRESHOLD = 100
-LR_TRIGGER = 0.9
-ITERS_TRIGGER = 20000
+LR_TRIGGER = 0.1
+ITERS_TRIGGER = 100
 
 # # # # # # # #
 TARGET = 5
@@ -101,7 +102,7 @@ def find_best_trigger(round=1, seeds=None, save=False):
 
     model.eval()
     units = tfs.find_topk_internal_neuron(model.fc1, topk=1, module_type=LayerType.FullConnect)
-
+    print(units)
     tg = TriggerGenerator(model=model, mask=MASK.to(DEVICE) , layers=[model.fc1], neuron_indices=[[104]], 
                     threshold=THRESHOLD, use_layer_input=False, device=DEVICE, lr=LR_TRIGGER, iters=ITERS_TRIGGER, 
                     clip=True, clip_max=1., clip_min=0)
@@ -251,6 +252,37 @@ def misc():
 
         print(f"In layer {i}, size: {size}\n original:trained_one = {cmp1}, original:trained_two = {cmp2}, one:two = {cmp3}")
 
+def misc2():
+    net = MNISTNetAlt().to(DEVICE)
+    net.load_state_dict(torch.load('.models/mnist_alt.pth', map_location=DEVICE))
+    net.eval()
+
+    fh = ForwardHook(net.fc1)
+    fh.hook()
+
+    trigger = torch.ones_like(MASK, device=DEVICE).unsqueeze(0)
+    mask = MASK.to(DEVICE).unsqueeze(0)
+
+    idx = 27
+    lfn = torch.nn.MSELoss()
+    for it in range(ITERS_TRIGGER):
+        trigger.requires_grad = True
+        net.zero_grad()
+        net(trigger)
+        tmp = net.act.clone().detach()
+        print(net.act.shape, net.act[0][idx], fh.module_input[0].shape, fh.module_output[0][0][idx])
+        tmp[0][idx] = THRESHOLD
+        loss = lfn(net.act, tmp)
+        loss.backward()
+    
+        with torch.no_grad():
+            trigger.data = (trigger - trigger.grad * LR_TRIGGER).detach()
+            trigger = (trigger * mask).detach()
+            trigger.data = torch.clamp(trigger.detach(), 0., 1.)
+            fh.refresh()
+    print(trigger[0,0,20:,20:])
+    fh.remove()
+    
 if __name__ == "__main__":
     epsilon=0.01
     gpu="cuda:0"
@@ -285,10 +317,11 @@ if __name__ == "__main__":
     else:
         print("select mode")
         # misc()
-        
+        misc2()
         # for i in range(128):
-        trigger, *_ = find_best_trigger(round=1, save=True)
-        tfs.save_trigger_to_png(f"./test.png", trigger)
+        # trigger, *_ = find_best_trigger(round=1, save=False)
+        # print(trigger[0,20:,20:])
+        # tfs.save_trigger_to_png(f"./test.png", trigger)
         # model = init_mnist_network(cat=MNIST_NET_ARCH)
         # for layer, param in enumerate(model.parameters()):
         #     print(f"layer {layer}, param is {param.shape}")

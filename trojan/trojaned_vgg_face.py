@@ -49,9 +49,7 @@ class VGGFace(JPEGFileParser):
     def __getitem__(self, index):
         img = self.get_img(index)
         filename = os.path.split(self.img_path_list[index])[-1]
-        print(os.path.split(self.img_path_list[index]))
-        print(filename)
-        [_, name, __] = re.split(r"([a-zA-Z_\.]+)_[\d\._]+\.jpg|jpeg", filename)
+        [_, name, __] = re.split(r"([a-zA-Z_\.-]+)_[\d\._-]+\.jpe?g", filename)
         label = self.name_list[name]
 
         if self.transform is not None:

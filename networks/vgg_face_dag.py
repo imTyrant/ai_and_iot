@@ -83,6 +83,7 @@ class Vgg_face_dag(nn.Module):
         x31_preflatten = self.pool5(x30)
         x31 = x31_preflatten.view(x31_preflatten.size(0), -1)
         x32 = self.fc6(x31)
+        self.act = x32
         x33 = self.relu6(x32)
         x34 = self.dropout6(x33)
         x35 = self.fc7(x34)

@@ -163,6 +163,7 @@ class Trainer(object):
         for i, (data, labels) in enumerate(dataset):
             data, labels = data.to(device), labels.to(device)
             _, y_hat = model(data).max(1)
+            print(y_hat, labels)
             match = (y_hat == labels)
             correct += len(match.nonzero())
         return correct, (correct / len(dataset.dataset))

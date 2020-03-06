@@ -104,7 +104,7 @@ def generate_trigger(model: Module,
             t = layer.clone().detach() # type: Tensor
             t.requires_grad = False
             for idx in neuron_indices[i]:
-                print(t[0][idx].item(), layer.max().item())
+                print("for neuron: ", t[0][idx].item(), "for max neuron", layer.max().item())
                 t[0][idx] = threshold
             target_list.append(t)
 
@@ -114,7 +114,7 @@ def generate_trigger(model: Module,
         for i in range(len(layer_activation)):
             loss = loss + lfn(layer_activation[i], target_list[i])
 
-        print(loss)
+        print("The loss is: ", loss)
         if loss.item() < best_loss:
             best_trigger = trigger.clone().detach()
             best_loss = loss.item()
@@ -183,7 +183,7 @@ class TriggerGenerator(object):
             units_indices = self.neuron_indices[i]
             for index_of_unit in units_indices:
                 acts.append(layer_activation[i][0][index_of_unit].item())
-        print(acts)
+        print("The activation is: ", acts)
         return acts
 
     def __call__(self, seed=None, test=False):
